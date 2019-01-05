@@ -1,16 +1,21 @@
+val db = DatabaseRepository()
+val api = ApiRepository()
+
 fun main(args: Array<String>) {
-    val repo = CachedRepository()
+    val repo = CachedRepository(db, api)
 
     val baseItem = repo.item(19684)!! // Mithril ingot
 
 
-    val craftedItems = repo.craftedItemsUsing(baseItem)
+    val craftedItems = repo.craftedItemsUsing(baseItem, refreshFromApi = false)
     println("Got ${craftedItems.size} crafted items, querying listings")
     val baseItemListing = repo.listing(baseItem)!!
 
     println("${baseItem.name} sells for ${baseItemListing.highestBuyOrder} coins right now")
 
-    val craftedItemListings = craftedItems.map { craftedItem ->
+    val craftedItemListings = craftedItems.filter { craftedItem ->
+        craftedItem.recipe.ingredients.size == 1
+    }.map { craftedItem ->
         craftedItem to repo.listing(craftedItem.item)!!
     }.sortedByDescending { (craftedItem, listing) ->
         listing.highestBuyOrder / craftedItem.recipe.ingredients.first().amount

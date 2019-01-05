@@ -92,7 +92,7 @@ class CraftedItemConverter : Converter {
         }
 
         val itemId = jv.objInt("output_item_id")
-        val item = CachedRepository().item(itemId) ?: Item(id = itemId, name = "don't fucking know")
+        val item = CachedRepository(db, api).item(itemId) ?: Item(id = itemId, name = "don't fucking know")
 
         return CraftedItem(
             item = item,

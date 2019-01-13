@@ -13,8 +13,8 @@ internal class ItemKtTest {
             }
         """.trimIndent()
 
-        val item = Klaxon().parseArray<JsonItem>(json)?.first()!!
-        val expected = Item(id=1, name="itemId name")
+        val item = Klaxon().parse<JsonItem>(json)!!
+        val expected = Item(id=1, name="itemId name", recipe = null)
 
         assertThat(item).isEqualToComparingFieldByField(expected)
     }

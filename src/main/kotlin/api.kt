@@ -26,7 +26,7 @@ class ApiRepository {
         return Klaxon().parseArray<JsonItem>(getJson(url))?.first()!!.toModel()
     }
 
-    fun craftedItemsUsing(item: Item): List<CraftedItem> {
+    fun craftedItemsUsing(item: Item): List<Item> {
         val url = RECIPES_BASE_URL.replace("ITEM_ID", item.id.toString())
         val json = getJson(url)
 
@@ -36,7 +36,7 @@ class ApiRepository {
             val recipeUrl = RECIPE_BASE_URL.replace("ITEM_ID", recipeId.toString())
             val recipeJson = getJson(recipeUrl)
 
-            Klaxon().converter(CraftedItemConverter()).parse<CraftedItem>(recipeJson)!!
+            Klaxon().converter(CraftedItemConverter()).parse<Item>(recipeJson)!!
         }
 
         return result
@@ -78,7 +78,7 @@ class ListingConverter : Converter {
 
 
 class CraftedItemConverter : Converter {
-    override fun canConvert(cls: Class<*>) = cls == CraftedItem::class.java
+    override fun canConvert(cls: Class<*>) = cls == Item::class.java
 
     override fun fromJson(jv: JsonValue): Any? {
         if (jv.type != JsonObject::class.java) return null
@@ -92,13 +92,14 @@ class CraftedItemConverter : Converter {
         }
 
         val itemId = jv.objInt("output_item_id")
-        val item = CachedRepository(db, api).item(itemId) ?: Item(id = itemId, name = "don't fucking know")
-
-        return CraftedItem(
-            item = item,
-            recipe = Recipe(
-                ingredients = ingredients
+        return CachedRepository(db, api).item(itemId).whenNotNull {
+            it.copy(
+                recipe = Recipe(ingredients)
             )
+        } ?: Item(
+            id = itemId,
+            name = "don't fucking know",
+            recipe = Recipe(ingredients)
         )
     }
 

@@ -43,10 +43,10 @@ internal class CraftingKtTest {
                 }
         """.trimIndent()
 
-        val result = Klaxon().converter(CraftedItemConverter()).parse<CraftedItem>(json)!!
-        val expected = JsonCraftedItem(
+        val result = Klaxon().converter(CraftedItemConverter()).parse<Item>(json)!!
+        val expected = JsonItem(
             id = 46742,
-            name = "",
+            name = "Lump of Mithrillium",
             recipe = Recipe(
                 ingredients = listOf(
                     Ingredient(itemId = 19684, amount = 50),

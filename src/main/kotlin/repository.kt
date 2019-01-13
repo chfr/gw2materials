@@ -3,14 +3,14 @@ import java.sql.DriverManager
 
 interface GuildWars2ApiRepository {
     fun item(itemId: Int): Item?
-    fun craftedItemsUsing(item: Item, refreshFromApi: Boolean): List<CraftedItem>
+    fun craftedItemsUsing(item: Item, refreshFromApi: Boolean): List<Item>
     fun listing(item: Item): Listing?
 }
 
 class CachedRepository(
     private val db: DatabaseRepository,
     private val api: ApiRepository
-): GuildWars2ApiRepository {
+) : GuildWars2ApiRepository {
     private val MAX_AGE = 120  // seconds
 
     override fun item(itemId: Int): Item? {
@@ -19,11 +19,11 @@ class CachedRepository(
         }
     }
 
-    override fun craftedItemsUsing(item: Item, refreshFromApi: Boolean): List<CraftedItem> {
+    override fun craftedItemsUsing(item: Item, refreshFromApi: Boolean): List<Item> {
         if (refreshFromApi) {
             val craftedItems = api.craftedItemsUsing(item)
             craftedItems.forEach {
-                db.storeCraftedItem(it)
+                db.storeItem(it)
             }
             return craftedItems
         }
@@ -35,8 +35,10 @@ class CachedRepository(
     }
 }
 
-class DatabaseRepository {
-    private val connection: Connection = DriverManager.getConnection("jdbc:sqlite:gw2materials.sqlite")!!
+class DatabaseRepository(
+    path: String
+) {
+    val connection: Connection = DriverManager.getConnection(path)!!
 
     init {
         createTables()
@@ -44,53 +46,49 @@ class DatabaseRepository {
 
     private fun createTables() {
         val statement = connection.createStatement()
-        statement.execute("""
+        statement.execute(
+            """
             CREATE TABLE IF NOT EXISTS
             Item (
-                pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                id INTEGER NOT NULL UNIQUE,
-                name VARCHAR NOT NULL,
-                ts INTEGER DEFAULT CURRENT_TIMESTAMP
-            )
+                pk INTEGER PRIMARY KEY,
+                ts INTEGER DEFAULT CURRENT_TIMESTAMP,
+                id INTEGER UNIQUE NOT NULL,
+                name TEXT NOT NULL
+            );
             """.trimIndent()
         )
 
-        statement.execute("""
-            CREATE TABLE IF NOT EXISTS
-            Recipe (
-                pk INTEGER PRIMARY KEY AUTOINCREMENT
-            )
-            """.trimIndent()
-        )
-
-        statement.execute("""
-            CREATE TABLE IF NOT EXISTS
-            Ingredient (
-                pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                item_ref INTEGER NOT NULL,
+        statement.execute(
+            """
+            CREATE TABLE IF NOT EXISTS Ingredient(
+                pk INTEGER PRIMARY KEY,
                 recipe_ref INTEGER NOT NULL,
+                item_ref INTEGER NOT NULL,
                 count INTEGER NOT NULL,
+                UNIQUE(recipe_ref, item_ref)
                 FOREIGN KEY(item_ref) REFERENCES Item(pk),
                 FOREIGN KEY(recipe_ref) REFERENCES Recipe(pk)
-            )
+            );
             """.trimIndent()
         )
 
-        statement.execute("""
+        statement.execute(
+            """
             CREATE TABLE IF NOT EXISTS
-            CraftedItem (
-                pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                item_ref INTEGER NOT NULL,
-                recipe_ref INTEGER NOT NULL,
-                FOREIGN KEY(item_ref) REFERENCES Item(pk),
-                FOREIGN KEY(recipe_ref) REFERENCES Recipe(pk)
-            )
+            Recipe(
+                pk INTEGER PRIMARY KEY,
+                output INTEGER NOT NULL,
+                ingredients_hash INTEGER NOT NULL,
+                UNIQUE(output, ingredients_hash)
+                FOREIGN KEY(output) REFERENCES Item(pk)
+            );
             """.trimIndent()
         )
     }
 
     fun item(itemId: Int): Item? {
-        val statement = connection.prepareStatement("""
+        val statement = connection.prepareStatement(
+            """
             SELECT
                 item.id,
                 item.name
@@ -98,7 +96,8 @@ class DatabaseRepository {
                 Item item
             WHERE
                 item.id = ?
-        """.trimIndent())!!
+        """.trimIndent()
+        )!!
 
         statement.setInt(1, itemId)
         val rs = statement.executeQuery()!!
@@ -108,26 +107,77 @@ class DatabaseRepository {
         } else {
             Item(
                 id = rs.getInt("id"),
-                name = rs.getString("name")
+                name = rs.getString("name"),
+                recipe = null
             )
         }
     }
 
-    fun storeItem(item: Item) {
-        val statement =  connection.prepareStatement("""
+    fun storeItem(item: Item): Int {
+        val statement = connection.prepareStatement(
+            """
             INSERT INTO
                 Item (id, name)
             VALUES
                 (?, ?)
             ON CONFLICT(id) DO UPDATE SET ts = CURRENT_TIMESTAMP, name = excluded.name
-        """.trimIndent())
+        """.trimIndent()
+        )
 
         statement.setInt(1, item.id)
         statement.setString(2, item.name)
         statement.executeUpdate()
+
+        val itemRef = with(connection.prepareStatement("SELECT pk FROM Item WHERE id = ?")) {
+            this.setInt(1, item.id)
+            this.executeQuery()!!.getInt("pk")
+        }
+
+        item.recipe.whenNotNull { recipe ->
+            val recipeRef = with(connection.prepareStatement(
+                """
+                    INSERT INTO
+                        Recipe (output, ingredients_hash)
+                    VALUES
+                        (?, ?)
+                    ON CONFLICT(output, ingredients_hash) DO NOTHING
+                """.trimIndent()
+            )) {
+                this.setInt(1, itemRef)
+                this.setString(2, item.recipe!!.ingredientsHash)
+                this.executeUpdate()
+
+                with(connection.prepareStatement("SELECT pk FROM Recipe ORDER BY pk DESC LIMIT 1")) {
+                    this.executeQuery()!!.getInt("pk")
+                }
+            }
+
+            val refAndCount = item.recipe!!.ingredients.map { ingredient ->
+                Pair(storeItem(Item(ingredient.itemId, "TBD", null)), ingredient.amount)
+            }
+
+            val sql = """
+                INSERT INTO
+                    Ingredient (recipe_ref, item_ref, count)
+                VALUES
+                    (?, ?, ?)
+                ON CONFLICT (recipe_ref, item_ref) DO NOTHING
+            """.trimIndent()
+
+            with(connection.prepareStatement(sql)) {
+                refAndCount.map { (ref, count) ->
+                    this.setInt(1, recipeRef)
+                    this.setInt(2, ref)
+                    this.setInt(3, count)
+                    this.executeUpdate()
+                }
+            }
+        }
+
+        return itemRef
     }
 
-    fun craftedItemsUsing(item: Item): List<CraftedItem> {
+    fun craftedItemsUsing(item: Item): List<Item> {
         data class Row(
             val craftedId: Int,
             val craftedName: String,
@@ -136,33 +186,32 @@ class DatabaseRepository {
             val ingredientCount: Int
         )
 
-        val statement = connection.prepareStatement("""
+        val statement = connection.prepareStatement(
+            """
             SELECT
-                c_item.id as 'crafted_id',
-                c_item.name as 'crafted_name',
-                i_item.id as 'ingredient_id',
-                i_item.name as 'ingredient_name',
+                output.id as 'crafted_id',
+                output.name as 'crafted_name',
+                ingredient_item.id as 'ingredient_id',
+                ingredient_item.name as 'ingredient_name',
                 ingredient.count as 'count'
             FROM
                 Recipe recipe
-                JOIN CraftedItem crafted_item ON crafted_item.recipe_ref = recipe.pk
                 JOIN Ingredient ingredient ON ingredient.recipe_ref = recipe.pk
-                JOIN Item i_item ON i_item.pk = ingredient.item_ref
-                JOIN Item c_item ON c_item.pk = crafted_item.item_ref
+                JOIN Item ingredient_item ON ingredient.item_ref = ingredient_item.pk
+                JOIN Item output ON recipe.output = output.pk
             WHERE
-                recipe.pk IN
-                (
-                SELECT
-                    recipe.pk
-                FROM
-                    Recipe recipe
-                    JOIN CraftedItem crafted_item ON crafted_item.recipe_ref = recipe.pk
-                    JOIN Ingredient ingredient ON ingredient.recipe_ref = recipe.pk
-                    JOIN Item item ON item.pk = ingredient.item_ref
-                WHERE
-                    item.id = ?
+                recipe.pk IN (
+                    SELECT
+                        recipe.pk
+                    FROM
+                        Ingredient ingredient
+                        JOIN Item ingredient_item ON ingredient.item_ref = ingredient_item.pk
+                        JOIN Recipe recipe ON ingredient.recipe_ref = recipe.pk
+                    WHERE
+                        ingredient_item.id = ?
                 )
-        """.trimIndent())!!
+        """.trimIndent()
+        )!!
 
         statement.setInt(1, item.id)
         val rs = statement.executeQuery()
@@ -182,11 +231,9 @@ class DatabaseRepository {
         }
 
         return ingredientsByCraftedItem.values.map {
-            CraftedItem(
-                Item(
-                    id = it.first().craftedId,
-                    name = it.first().craftedName
-                ),
+            Item(
+                id = it.first().craftedId,
+                name = it.first().craftedName,
                 recipe = Recipe(
                     ingredients = it.map { row ->
                         Ingredient(itemId = row.ingredientId, amount = row.ingredientCount)
@@ -196,70 +243,10 @@ class DatabaseRepository {
         }
     }
 
-    fun storeCraftedItem(craftedItem: CraftedItem) {
-        craftedItem.recipe.ingredients.filter {
-            item(it.itemId) == null
-        }.forEach {
-            storeItem(Item(it.itemId, "TBD"))
-        }
 
-        val recipeKey = createRecipe()
-        craftedItem.recipe.ingredients.forEach {
-            createIngredient(recipeKey, it.itemId, it.amount)
-        }
 
-        item(craftedItem.item.id) ?: storeItem(craftedItem.item)
-        createCraftedItem(craftedItem.item.id, recipeKey)
+    fun close() {
+        connection.close()
     }
 
-
-
-    private fun createRecipe(): Int {
-        var statement =  connection.prepareStatement("INSERT INTO Recipe (pk) VALUES (null)")
-        statement.executeUpdate()
-        statement = connection.prepareStatement("SELECT pk FROM Recipe ORDER BY pk DESC LIMIT 1")
-        return statement.executeQuery()!!.getInt("pk")
-    }
-
-    private fun createIngredient(recipeKey: Int, itemId: Int, amount: Int) {
-        val statement =  connection.prepareStatement("""
-            INSERT INTO
-                Ingredient (
-                    recipe_ref,
-                    item_ref,
-                    count
-                )
-                SELECT
-                    ?,
-                    item.pk,
-                    ?
-                FROM
-                    Item item
-                WHERE
-                    item.id = ?
-            """.trimIndent()
-        )
-        statement.setInt(1, recipeKey)
-        statement.setInt(2, amount)
-        statement.setInt(3, itemId)
-        statement.executeUpdate()
-    }
-
-    private fun createCraftedItem(itemId: Int, recipeKey: Int) {
-        val statement = connection.prepareStatement("""
-            INSERT INTO CraftedItem (
-                item_ref, recipe_ref
-            )
-            SELECT
-                item.pk,
-                ?
-            FROM
-                Item item
-            WHERE
-                item.id = ?
-        """.trimIndent())
-        statement.setInt(1, recipeKey)
-        statement.setInt(2, itemId)
-        statement.executeUpdate()
-    }
 }

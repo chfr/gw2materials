@@ -1,17 +1,20 @@
 import com.beust.klaxon.Klaxon
 
-open class Item(
-    open val id: Int,
-    open val name: String
+data class Item(
+    val id: Int,
+    val name: String,
+    val recipe: Recipe?
 )
 
 class JsonItem(
     val id: Int,
-    val name: String
+    val name: String,
+    val recipe: Recipe? = null
 ) {
     fun toModel() = Item(
         id = this.id,
-        name = this.name
+        name = this.name,
+        recipe = this.recipe
     )
 }
 

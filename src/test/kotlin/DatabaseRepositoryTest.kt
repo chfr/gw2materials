@@ -24,6 +24,12 @@ abstract class DatabaseTest {
     }
 
     fun rows(countQuery: String) = with(db.connection.prepareStatement(countQuery)) {
+        assertThat(
+            countQuery.replace(Regex("[\t\n ]+"), " ").toLowerCase()
+        ).describedAs(
+            "countQuery must start with SELECT COUNT"
+        ).startsWith("select count")
+
         val rs = this.executeQuery()
         rs.getInt(1)
     }

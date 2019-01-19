@@ -6,7 +6,7 @@ fun main(args: Array<String>) {
 
     val baseItem = repo.item(19684)!! // Mithril ingot
 
-    val craftedItems = repo.craftedItemsUsing(baseItem, refreshFromApi = true)
+    val craftedItems = repo.craftedItemsUsing(baseItem, refreshFromApi = false)
     println("Got ${craftedItems.size} crafted items, querying listings")
     val baseItemListing = repo.listing(baseItem)!!
 
@@ -20,7 +20,7 @@ fun main(args: Array<String>) {
         listing.highestBuyOrder / craftedItem.recipe!!.ingredients.first().amount
     }
 
-    println("Base price per item: ${baseItemListing.highestBuyOrder} / ${baseItemListing.highestSellOrder}")
+    println("Base price per item: ${baseItemListing.highestBuyOrder} / ${baseItemListing.lowestSellOrder}")
     println()
     craftedItemListings.filter { (ci, listing) ->
         listing.withFees.highestBuyOrder / ci.recipe!!.ingredients.first().amount.toFloat() > baseItemListing.highestBuyOrder

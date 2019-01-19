@@ -48,9 +48,10 @@ internal class CommerceKtTest {
 
         val result = Klaxon().converter(ListingConverter()).parse<Listing>(json)!!
         val expected = Listing(
+            timestamp = result.timestamp,
             itemId = 19684,
             highestBuyOrder = 166,
-            highestSellOrder = 168
+            lowestSellOrder = 168
         )
 
         assertThat(result).isEqualToComparingFieldByField(expected)

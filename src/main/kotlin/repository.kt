@@ -1,5 +1,10 @@
 import java.sql.Connection
 import java.sql.DriverManager
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+
 
 interface GuildWars2ApiRepository {
     fun item(itemId: Int): Item?
@@ -31,7 +36,24 @@ class CachedRepository(
     }
 
     override fun listing(item: Item): Listing? {
-        return api.listing(item)
+        val now = LocalDateTime.now()!!
+        val dbListing = db.listing(item)
+        return if (dbListing == null) {
+            api.listing(item).also { listing ->
+                listing.whenNotNull { db.storeListing(it) }
+            }
+        } else {
+            val age = ChronoUnit.SECONDS.between(dbListing.timestamp, now)
+            if (age > MAX_AGE) {
+                println("refreshing from db because of age!")
+                api.listing(item).also { listing ->
+                    listing.whenNotNull { db.storeListing(it) }
+                }
+            } else {
+                println("using db listing")
+                dbListing
+            }
+        }
     }
 }
 
@@ -39,6 +61,7 @@ class DatabaseRepository(
     path: String
 ) {
     val connection: Connection = DriverManager.getConnection(path)!!
+    private val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")!!
 
     init {
         createTables()
@@ -84,6 +107,20 @@ class DatabaseRepository(
             );
             """.trimIndent()
         )
+
+        statement.execute(
+            """
+            CREATE TABLE IF NOT EXISTS
+            Listing(
+                pk INTEGER PRIMARY KEY,
+                ts INTEGER DEFAULT CURRENT_TIMESTAMP,
+                item_id INTEGER NOT NULL,
+                highest_buy_order INTEGER NOT NULL,
+                lowest_sell_order INTEGER NOT NULL,
+                UNIQUE(item_id)
+            );
+            """.trimIndent()
+        )
     }
 
     fun item(itemId: Int): Item? {
@@ -120,7 +157,13 @@ class DatabaseRepository(
                 Item (id, name)
             VALUES
                 (?, ?)
-            ON CONFLICT(id) DO UPDATE SET ts = CURRENT_TIMESTAMP, name = excluded.name
+            ON CONFLICT
+                (id)
+            DO UPDATE SET
+                ts = CURRENT_TIMESTAMP,
+                name = excluded.name
+            WHERE
+                excluded.name != "TBD"
         """.trimIndent()
         )
 
@@ -134,15 +177,17 @@ class DatabaseRepository(
         }
 
         item.recipe.whenNotNull { recipe ->
-            val recipeRef = with(connection.prepareStatement(
-                """
+            val recipeRef = with(
+                connection.prepareStatement(
+                    """
                     INSERT INTO
                         Recipe (output, ingredients_hash)
                     VALUES
                         (?, ?)
                     ON CONFLICT(output, ingredients_hash) DO NOTHING
                 """.trimIndent()
-            )) {
+                )
+            ) {
                 this.setInt(1, itemRef)
                 this.setString(2, item.recipe!!.ingredientsHash)
                 this.executeUpdate()
@@ -243,7 +288,59 @@ class DatabaseRepository(
         }
     }
 
+    fun listing(item: Item): Listing? {
+        val statement = connection.prepareStatement(
+            """
+            SELECT
+                listing.ts,
+                listing.item_id,
+                listing.highest_buy_order,
+                listing.lowest_sell_order
+            FROM
+                Listing listing
+            WHERE
+                item_id = ?
+        """.trimIndent()
+        )!!
 
+        statement.setInt(1, item.id)
+        val rs = statement.executeQuery()!!
+
+        return if (!rs.next()) {
+            null
+        } else {
+            val ts = rs.getString("ts")
+            Listing(
+                timestamp = LocalDateTime.parse(ts, formatter),
+                itemId = rs.getInt("item_id"),
+                highestBuyOrder = rs.getInt("highest_buy_order"),
+                lowestSellOrder = rs.getInt("lowest_sell_order")
+            )
+        }
+    }
+
+    fun storeListing(listing: Listing): Int {
+        val statement = connection.prepareStatement(
+            """
+            INSERT INTO
+                Listing (ts, item_id, highest_buy_order, lowest_sell_order)
+            VALUES
+                (?, ?, ?, ?)
+            ON CONFLICT(item_id) DO UPDATE SET ts = excluded.ts
+        """.trimIndent()
+        )
+
+        statement.setString(1, listing.timestamp.format(formatter))
+        statement.setInt(2, listing.itemId)
+        statement.setInt(3, listing.highestBuyOrder)
+        statement.setInt(4, listing.lowestSellOrder)
+        statement.executeUpdate()
+
+        return with(connection.prepareStatement("SELECT pk FROM Listing WHERE item_id = ?")) {
+            this.setInt(1, listing.itemId)
+            this.executeQuery()!!.getInt("pk")
+        }
+    }
 
     fun close() {
         connection.close()

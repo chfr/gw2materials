@@ -4,6 +4,7 @@ import com.beust.klaxon.JsonValue
 import com.beust.klaxon.Klaxon
 import java.io.FileNotFoundException
 import java.net.URL
+import java.time.LocalDateTime
 
 const val LISTING_BASE_URL = "https://api.guildwars2.com/v2/commerce/listings/ITEM_ID"
 const val RECIPES_BASE_URL = "https://api.guildwars2.com/v2/recipes/search?input=ITEM_ID"
@@ -47,7 +48,7 @@ class ApiRepository {
         return try {
             Klaxon().converter(ListingConverter()).parse<Listing>(getJson(url))!!
         } catch (e: FileNotFoundException) {
-            Listing(itemId = item.id, highestSellOrder = 0, highestBuyOrder = 0)
+            Listing(timestamp = LocalDateTime.now(), itemId = item.id, lowestSellOrder = 0, highestBuyOrder = 0)
         }
     }
 }
@@ -64,9 +65,10 @@ class ListingConverter : Converter {
         val sell = obj.array<JsonObject>("sells")?.firstOrNull()?.int("unit_price") ?: 0
 
         return Listing(
+            timestamp = LocalDateTime.now(),
             itemId = obj.int("id")!!,
             highestBuyOrder = buy,
-            highestSellOrder = sell
+            lowestSellOrder = sell
         )
     }
 

@@ -1,41 +1,37 @@
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 
-interface GuildWars2ApiRepository {
+interface GuildWars2Repository {
     fun item(itemId: Int): Item?
-    fun craftedItemsUsing(item: Item, refreshFromApi: Boolean): List<Item>
+    fun craftedItemsUsing(item: Item): List<Item>
     fun listing(item: Item): Listing?
 }
 
 class CachedRepository(
     private val db: DatabaseRepository,
-    private val api: ApiRepository
-) : GuildWars2ApiRepository {
+    private val api: RateLimitedApiRepository
+) {
     private val MAX_AGE = 120  // seconds
 
-    override fun item(itemId: Int): Item? {
+    fun item(itemId: Int): Item? {
         return db.item(itemId) ?: api.item(itemId).also { item ->
             item.whenNotNull { db.storeItem(it) }
         }
     }
 
-    override fun craftedItemsUsing(item: Item, refreshFromApi: Boolean): List<Item> {
-        if (refreshFromApi) {
+    fun craftedItemsUsing(item: Item): List<Item> {
             val craftedItems = api.craftedItemsUsing(item)
             craftedItems.forEach {
                 db.storeItem(it)
             }
             return craftedItems
-        }
-        return db.craftedItemsUsing(item)
     }
 
-    override fun listing(item: Item): Listing? {
+    fun listing(item: Item): Listing? {
         val now = LocalDateTime.now()!!
         val dbListing = db.listing(item)
         return if (dbListing == null) {
@@ -59,7 +55,7 @@ class CachedRepository(
 
 class DatabaseRepository(
     path: String
-) {
+) : GuildWars2Repository {
     val connection: Connection = DriverManager.getConnection(path)!!
     private val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")!!
 
@@ -123,7 +119,7 @@ class DatabaseRepository(
         )
     }
 
-    fun item(itemId: Int): Item? {
+    override fun item(itemId: Int): Item? {
         val statement = connection.prepareStatement(
             """
             SELECT
@@ -176,7 +172,7 @@ class DatabaseRepository(
             this.executeQuery()!!.getInt("pk")
         }
 
-        item.recipe.whenNotNull { recipe ->
+        item.recipe.whenNotNull {
             val recipeRef = with(
                 connection.prepareStatement(
                     """
@@ -222,7 +218,7 @@ class DatabaseRepository(
         return itemRef
     }
 
-    fun craftedItemsUsing(item: Item): List<Item> {
+    override fun craftedItemsUsing(item: Item): List<Item> {
         data class Row(
             val craftedId: Int,
             val craftedName: String,
@@ -288,7 +284,7 @@ class DatabaseRepository(
         }
     }
 
-    fun listing(item: Item): Listing? {
+    override fun listing(item: Item): Listing? {
         val statement = connection.prepareStatement(
             """
             SELECT

@@ -1,12 +1,12 @@
 val db = DatabaseRepository("jdbc:sqlite:gw2materials.sqlite")
-val api = ApiRepository()
+val api = RateLimitedApiRepository()
 
 fun main(args: Array<String>) {
     val repo = CachedRepository(db, api)
 
     val baseItem = repo.item(19684)!! // Mithril ingot
 
-    val craftedItems = repo.craftedItemsUsing(baseItem, refreshFromApi = false)
+    val craftedItems = repo.craftedItemsUsing(baseItem)
     println("Got ${craftedItems.size} crafted items, querying listings")
     val baseItemListing = repo.listing(baseItem)!!
 

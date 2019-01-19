@@ -10,24 +10,25 @@ const val LISTING_BASE_URL = "https://api.guildwars2.com/v2/commerce/listings/IT
 const val RECIPES_BASE_URL = "https://api.guildwars2.com/v2/recipes/search?input=ITEM_ID"
 const val RECIPE_BASE_URL = "https://api.guildwars2.com/v2/recipes/ITEM_ID"
 
-private var REQUEST_COUNT = 0
 
-fun getJson(endpoint: String): String {
-    REQUEST_COUNT += 1
+class RateLimitedApiRepository : GuildWars2Repository {
+    private var REQUEST_COUNT = 0
 
-    if (REQUEST_COUNT % 5 == 0)
-        println("Issued $REQUEST_COUNT requests...")
+    private fun getJson(endpoint: String): String {
+        REQUEST_COUNT += 1
 
-    return URL(endpoint).readText()
-}
+        if (REQUEST_COUNT % 5 == 0)
+            println("Issued $REQUEST_COUNT requests...")
 
-class ApiRepository {
-    fun item(itemId: Int): Item {
+        return URL(endpoint).readText()
+    }
+
+    override fun item(itemId: Int): Item {
         val url = ITEM_BASE_URL.replace("ITEM_ID", itemId.toString())
         return Klaxon().parseArray<JsonItem>(getJson(url))?.first()!!.toModel()
     }
 
-    fun craftedItemsUsing(item: Item): List<Item> {
+    override fun craftedItemsUsing(item: Item): List<Item> {
         val url = RECIPES_BASE_URL.replace("ITEM_ID", item.id.toString())
         val json = getJson(url)
 
@@ -43,7 +44,7 @@ class ApiRepository {
         return result
     }
 
-    fun listing(item: Item): Listing? {
+    override fun listing(item: Item): Listing? {
         val url = LISTING_BASE_URL.replace("ITEM_ID", item.id.toString())
         return try {
             Klaxon().converter(ListingConverter()).parse<Listing>(getJson(url))!!

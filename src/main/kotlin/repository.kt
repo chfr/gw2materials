@@ -16,43 +16,107 @@ interface GuildWars2Repository {
 class CachedRepository(
     private val db: DatabaseRepository,
     private val api: RateLimitedApiRepository
-) {
+) : GuildWars2Repository {
     private val MAX_AGE = 120  // seconds
 
-    fun item(itemId: Int): Item? {
+    override fun item(itemId: Int): Item? {
         return db.item(itemId) ?: api.item(itemId).also { item ->
             item.whenNotNull { db.storeItem(it) }
         }
     }
 
-    fun craftedItemsUsing(item: Item): List<Item> {
-            val craftedItems = api.craftedItemsUsing(item)
-            craftedItems.forEach {
-                db.storeItem(it)
+    override fun items(itemIds: List<Int>): List<Item> {
+        val items = mutableListOf<Item>()
+        val idsNotInDb = mutableListOf<Int>()
+
+        itemIds.forEach { id ->
+            db.item(id).whenNotNull { item ->
+                items.add(item)
+            } ?: idsNotInDb.add(id)
+        }
+
+        items.addAll(
+            api.items(idsNotInDb).also { itemsFromApi ->
+                itemsFromApi.forEach { item ->
+                    db.storeItem(item)
+                }
             }
-            return craftedItems
+        )
+
+        return items.toList()
     }
 
-    fun listing(item: Item): Listing? {
-        val now = LocalDateTime.now()!!
+    override fun craftedItemsUsing(item: Item): List<Item> {
+        val craftedItems = db.craftedItemsUsing(item)
+
+        if (craftedItems.isEmpty()) {
+            val apiCraftedItems = api.craftedItemsUsing(item)
+            apiCraftedItems.forEach {
+                db.storeItem(it)
+            }
+
+            return apiCraftedItems
+        }
+
+        return craftedItems
+    }
+
+    override fun listing(item: Item): Listing? {
         val dbListing = db.listing(item)
         return if (dbListing == null) {
             api.listing(item).also { listing ->
                 listing.whenNotNull { db.storeListing(it) }
             }
         } else {
-            val age = ChronoUnit.SECONDS.between(dbListing.timestamp, now)
-            if (age > MAX_AGE) {
-                println("refreshing from db because of age!")
+            if (listingTooOld(dbListing)) {
                 api.listing(item).also { listing ->
                     listing.whenNotNull { db.storeListing(it) }
                 }
             } else {
-                println("using db listing")
                 dbListing
             }
         }
     }
+
+    override fun listings(itemIds: List<Int>): List<Listing> {
+        val dbListings = itemIds.mapNotNull { db.listing(Item(id = it, name = "whatever", recipe = null)) }
+        val result = mutableListOf<Listing>()
+
+        val missingListings = itemIds.subtract(dbListings.map { it.itemId })
+
+        dbListings.forEach { dbListing ->
+            if (listingTooOld(dbListing)) {
+                val item = Item(dbListing.itemId, "dummy", null)
+                api.listing(item).also { apiListing ->
+                    apiListing.whenNotNull {
+                        db.storeListing(it)
+                        result.add(it)
+                    }
+                }
+            } else {
+                result.add(dbListing)
+            }
+        }
+
+        missingListings.forEach { itemId ->
+            val item = Item(itemId, "dummy", null)
+            val apiListing = api.listing(item)
+            apiListing.whenNotNull {
+                db.storeListing(it)
+                result.add(it)
+            }
+        }
+
+        return result.toList()
+    }
+
+    private fun listingTooOld(listing: Listing): Boolean {
+        val now = LocalDateTime.now()!!
+        val age = ChronoUnit.SECONDS.between(listing.timestamp, now)
+
+        return age > MAX_AGE
+    }
+
 }
 
 class DatabaseRepository(

@@ -14,18 +14,18 @@ fun main(args: Array<String>) {
 
     val craftedItemListings = craftedItems.filter { craftedItem ->
         craftedItem.recipe!!.ingredients.size == 1
-    }.map { craftedItem ->
-        craftedItem to repo.listing(craftedItem)!!
-    }.sortedByDescending { (craftedItem, listing) ->
-        listing.highestBuyOrder / craftedItem.recipe!!.ingredients.first().amount
     }
+    val listings = repo.listings(craftedItemListings.map { it.id }).associateBy { it.itemId }
+    val listingByItem = craftedItemListings.associate { it to listings[it.id] }
 
     println("Base price per item: ${baseItemListing.highestBuyOrder} / ${baseItemListing.lowestSellOrder}")
     println()
-    craftedItemListings.filter { (ci, listing) ->
-        listing.withFees().highestBuyOrder / ci.recipe!!.ingredients.first().amount.toFloat() > baseItemListing.highestBuyOrder
+    listingByItem.filter { (_, listing) ->
+        listing != null
+    }.filter { (ci, listing) ->
+        listing!!.withFees().highestBuyOrder / ci.recipe!!.ingredients.first().amount.toFloat() > baseItemListing.highestBuyOrder
     }.forEach { (craftedItem, listing) ->
-        val pricePerBase = listing.withFees().highestBuyOrder / craftedItem.recipe!!.ingredients.first().amount.toFloat()
+        val pricePerBase = listing!!.withFees().highestBuyOrder / craftedItem.recipe!!.ingredients.first().amount.toFloat()
         val priceTotal = listing.withFees().highestBuyOrder
         val amountNeeded = craftedItem.recipe.ingredients.first().amount
 

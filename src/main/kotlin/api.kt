@@ -7,11 +7,23 @@ import java.net.URL
 import java.time.LocalDateTime
 
 const val LISTING_BASE_URL = "https://api.guildwars2.com/v2/commerce/listings/ITEM_ID"
+const val LISTINGS_BASE_URL = "https://api.guildwars2.com/v2/commerce/listings?ids=ITEM_IDS"
 const val RECIPES_BASE_URL = "https://api.guildwars2.com/v2/recipes/search?input=ITEM_ID"
 const val RECIPE_BASE_URL = "https://api.guildwars2.com/v2/recipes/ITEM_ID"
 
+interface JsonRetriever {
+    fun getJson(url: String): String
+}
 
-class RateLimitedApiRepository : GuildWars2Repository {
+class NetworkJsonRetriever : JsonRetriever {
+    override fun getJson(url: String): String {
+        return URL(url).readText()
+    }
+}
+
+class RateLimitedApiRepository(
+    private val retriever: JsonRetriever
+) : GuildWars2Repository {
     private var REQUEST_COUNT = 0
 
     private fun getJson(endpoint: String): String {
@@ -20,12 +32,17 @@ class RateLimitedApiRepository : GuildWars2Repository {
         if (REQUEST_COUNT % 5 == 0)
             println("Issued $REQUEST_COUNT requests...")
 
-        return URL(endpoint).readText()
+        return retriever.getJson(endpoint)
     }
 
     override fun item(itemId: Int): Item {
         val url = ITEM_BASE_URL.replace("ITEM_ID", itemId.toString())
         return Klaxon().parseArray<JsonItem>(getJson(url))?.first()!!.toModel()
+    }
+
+    override fun items(itemIds: List<Int>): List<Item> {
+        val url = ITEM_BASE_URL.replace("ITEM_ID", itemIds.joinToString(","))
+        return Klaxon().parseArray<JsonItem>(getJson(url))?.map { it.toModel() } ?: emptyList()
     }
 
     override fun craftedItemsUsing(item: Item): List<Item> {
@@ -50,6 +67,15 @@ class RateLimitedApiRepository : GuildWars2Repository {
             Klaxon().converter(ListingConverter()).parse<Listing>(getJson(url))!!
         } catch (e: FileNotFoundException) {
             Listing(timestamp = LocalDateTime.now(), itemId = item.id, lowestSellOrder = 0, highestBuyOrder = 0)
+        }
+    }
+
+    override fun listings(itemIds: List<Int>): List<Listing> {
+        val url = LISTINGS_BASE_URL.replace("ITEM_IDS", itemIds.joinToString(","))
+        return try {
+            Klaxon().converter(ListingConverter()).parseArray(getJson(url))!!
+        } catch (e: FileNotFoundException) {
+            emptyList()
         }
     }
 }

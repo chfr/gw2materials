@@ -7,8 +7,10 @@ import java.time.temporal.ChronoUnit
 
 interface GuildWars2Repository {
     fun item(itemId: Int): Item?
+    fun items(itemIds: List<Int>): List<Item>
     fun craftedItemsUsing(item: Item): List<Item>
     fun listing(item: Item): Listing?
+    fun listings(itemIds: List<Int>): List<Listing>
 }
 
 class CachedRepository(
@@ -144,6 +146,10 @@ class DatabaseRepository(
                 recipe = null
             )
         }
+    }
+
+    override fun items(itemIds: List<Int>): List<Item> {
+        TODO("not implemented")
     }
 
     fun storeItem(item: Item): Int {
@@ -313,6 +319,10 @@ class DatabaseRepository(
                 lowestSellOrder = rs.getInt("lowest_sell_order")
             )
         }
+    }
+
+    override fun listings(itemIds: List<Int>): List<Listing> {
+        TODO("not implemented")
     }
 
     fun storeListing(listing: Listing): Int {

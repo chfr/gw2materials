@@ -6,11 +6,9 @@ data class Listing(
     val highestBuyOrder: Int,
     val lowestSellOrder: Int
 ) {
-    val withFees by lazy {
-        this.copy(
-            highestBuyOrder = (highestBuyOrder * 0.85).toInt(),
-            lowestSellOrder = (lowestSellOrder * 0.85).toInt()
-        )
-    }
+    fun withFees() = this.copy(
+        highestBuyOrder = (highestBuyOrder * 0.85).toInt(),
+        lowestSellOrder = (lowestSellOrder * 0.85).toInt()
+    )
 }
 

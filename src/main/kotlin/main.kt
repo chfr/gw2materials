@@ -1,16 +1,52 @@
 val db = DatabaseRepository("jdbc:sqlite:gw2materials.sqlite")
 val api = RateLimitedApiRepository(NetworkJsonRetriever())
+val repo = CachedRepository(db, api)
 
 fun main(args: Array<String>) {
-    val repo = CachedRepository(db, api)
+    val ids = listOf(
+        19680, // Copper ingot
+        19683, // Iron ingot
+        19687, // Silver ingot
+        19682, // Gold ingot
+        19686, // Platinum ingot
+        19684, // Mithril ingot
+        19685, // Orichalcum ingot
 
-    val baseItem = repo.item(19684)!! // Mithril ingot
+        19720, // Bolt of Jute
+        19740, // Bolt of Wool
+        19742, // Bolt of Cotton
+        19744, // Bolt of Linen
+        19747, // Bolt of Silk
 
-    val craftedItems = repo.craftedItemsUsing(baseItem)
-    println("Got ${craftedItems.size} crafted items, querying listings")
-    val baseItemListing = repo.listing(baseItem)!!
+        19738, // Stretched Rawhide Leather Square
+        19733, // Cured Thin Leather Square
+        19734, // Cured Coarse Leather Square
+        19736, // Cured Rugged Leather Square
+        19735, // Cured Thick Leather Square
+        19737, // Cured Hardened Leather Square
 
-    println("${baseItem.name} sells for ${baseItemListing.highestBuyOrder} coins right now")
+        19710, // Green Wood Plank
+        19713, // Soft Wood Plank
+        19714, // Seasoned Wood Plank
+        19711, // Hard Wood Plank
+        19709, // Elder Wood Plank
+        19712 // Ancient Wood Plank
+    )
+    ids.forEach { id ->
+        val item = repo.item(id)
+        item.whenNotNull {
+            checkProfitability(it)
+        }
+    }
+
+    println("Updating stub items...")
+    repo.updateStubItems()
+}
+
+fun checkProfitability(item: Item) {
+    val craftedItems = repo.craftedItemsUsing(item)
+    val itemListing = repo.listing(item)!!
+    println("Base price per ${item.name}: ${itemListing.highestBuyOrder} / ${itemListing.lowestSellOrder}")
 
     val craftedItemListings = craftedItems.filter { craftedItem ->
         craftedItem.recipe!!.ingredients.size == 1
@@ -18,12 +54,10 @@ fun main(args: Array<String>) {
     val listings = repo.listings(craftedItemListings.map { it.id }).associateBy { it.itemId }
     val listingByItem = craftedItemListings.associate { it to listings[it.id] }
 
-    println("Base price per item: ${baseItemListing.highestBuyOrder} / ${baseItemListing.lowestSellOrder}")
-    println()
     listingByItem.filter { (_, listing) ->
         listing != null
     }.filter { (ci, listing) ->
-        listing!!.withFees().highestBuyOrder / ci.recipe!!.ingredients.first().amount.toFloat() > baseItemListing.highestBuyOrder
+        listing!!.withFees().highestBuyOrder / ci.recipe!!.ingredients.first().amount.toFloat() > itemListing.highestBuyOrder
     }.forEach { (craftedItem, listing) ->
         val pricePerBase = listing!!.withFees().highestBuyOrder / craftedItem.recipe!!.ingredients.first().amount.toFloat()
         val priceTotal = listing.withFees().highestBuyOrder

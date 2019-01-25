@@ -46,6 +46,29 @@ class CachedRepository(
         return items.toList()
     }
 
+    fun updateStubItems() {
+        val sql = """
+            SELECT
+                id
+            FROM
+                Item
+            WHERE
+                name = 'TBD'
+        """.trimIndent()
+
+        val ids = with (db.connection.prepareStatement(sql)) {
+            this.executeQuery().toList {
+                it.getInt("id")
+            }
+        }
+
+        if (ids.isNotEmpty()) {
+            api.items(ids).forEach {
+                db.storeItem(it)
+            }
+        }
+    }
+
     override fun craftedItemsUsing(item: Item): List<Item> {
         val craftedItems = db.craftedItemsUsing(item)
 

@@ -24,15 +24,27 @@ class NetworkJsonRetriever : JsonRetriever {
 class RateLimitedApiRepository(
     private val retriever: JsonRetriever
 ) : GuildWars2Repository {
-    private var REQUEST_COUNT = 0
+    private val maxRequestsPerMinute = 600
+    private val requestHistory = mutableListOf<LocalDateTime>()
 
     private fun getJson(endpoint: String): String {
-        REQUEST_COUNT += 1
+        return if (canRequestFromApi()) {
+            requestHistory.add(LocalDateTime.now())
+            retriever.getJson(endpoint)
+        } else {
+            print("Hit API rate limit (-10 % safety margin), waiting to request...")
+            Thread.sleep(61 * 1000)
+            print("Resuming requests after waiting")
+            getJson(endpoint)
+        }
+    }
 
-        if (REQUEST_COUNT % 5 == 0)
-            println("Issued $REQUEST_COUNT requests...")
+    private fun canRequestFromApi(): Boolean {
+        val now = LocalDateTime.now()
+        val startTime = now.minusMinutes(1)
+        val requestsInLastMinute = requestHistory.filter { it > startTime }.size
 
-        return retriever.getJson(endpoint)
+        return requestsInLastMinute < (maxRequestsPerMinute * 0.9) // 10% safety margin
     }
 
     override fun item(itemId: Int): Item {

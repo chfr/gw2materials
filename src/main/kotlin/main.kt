@@ -4,6 +4,7 @@ val repo = CachedRepository(db, api)
 
 fun main(args: Array<String>) {
     val ids = listOf(
+//        19680 // Copper ingot
         19680, // Copper ingot
         19683, // Iron ingot
         19687, // Silver ingot
@@ -49,20 +50,25 @@ fun checkProfitability(item: Item) {
     println("Base price per ${item.name}: ${itemListing.highestBuyOrder} / ${itemListing.lowestSellOrder}")
 
     val craftedItemListings = craftedItems.filter { craftedItem ->
-        craftedItem.recipe!!.ingredients.size == 1
+        craftedItem.recipe!!.ingredients.size <= 2
     }
     val listings = repo.listings(craftedItemListings.map { it.id }).associateBy { it.itemId }
     val listingByItem = craftedItemListings.associate { it to listings[it.id] }
 
     listingByItem.filter { (_, listing) ->
         listing != null
+    }.map { (ci, listing) ->
+        ci to listing!!.withFees()
     }.filter { (ci, listing) ->
-        listing!!.withFees().highestBuyOrder / ci.recipe!!.ingredients.first().amount.toFloat() > itemListing.highestBuyOrder
+        ingredientCost(ci.recipe) < listing.highestBuyOrder
     }.forEach { (craftedItem, listing) ->
-        val pricePerBase = listing!!.withFees().highestBuyOrder / craftedItem.recipe!!.ingredients.first().amount.toFloat()
-        val priceTotal = listing.withFees().highestBuyOrder
-        val amountNeeded = craftedItem.recipe.ingredients.first().amount
-
-        println("${craftedItem.name} sells for $pricePerBase (after fees) per base item, ($amountNeeded needed, $priceTotal total buy value)")
+        val ingredientCost = ingredientCost(craftedItem.recipe)
+        val profit = printableCoins(listing.highestBuyOrder - ingredientCost)
+        println("\t ${craftedItem.name} sells for ${listing.highestBuyOrder}, ingredients cost $ingredientCost. Profit: $profit")
+        craftedItem.recipe!!.ingredients.forEach { ingredient ->
+            val ingredientItem = repo.item(ingredient.itemId) ?: Item(ingredient.itemId, "Ingredient ${ingredient.itemId}", null)
+            val ingredientPrice = repo.listing(ingredientItem)?.lowestSellOrder ?: Int.MAX_VALUE
+            println("\t\t${ingredientItem.name} x${ingredient.amount} costs $ingredientPrice each (${ingredientPrice * ingredient.amount} total)")
+        }
     }
 }

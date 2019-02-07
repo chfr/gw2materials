@@ -56,4 +56,36 @@ internal class CommerceKtTest {
 
         assertThat(result).isEqualToComparingFieldByField(expected)
     }
+
+    @Test
+    fun printableCoins() {
+        data class Case(val coins: Int, val expected: String)
+
+        val cases = listOf(
+            Case(0, "0c"),
+            Case(1, "1c"),
+            Case(100, "1s"),
+            Case(101, "1s1c"),
+            Case(10000, "1g"),
+            Case(10001, "1g1c"),
+            Case(10101, "1g1s1c"),
+            Case(-0, "0c"),
+            Case(-1, "-1c"),
+            Case(-100, "-1s"),
+            Case(-101, "-1s1c"),
+            Case(-10000, "-1g"),
+            Case(-10001, "-1g1c"),
+            Case(-10101, "-1g1s1c")
+        )
+
+        cases.forEach { case ->
+            assertThat(
+                printableCoins(case.coins)
+            ).describedAs(
+                "${case.coins} coins should be formatted as ${case.expected}"
+            ).isEqualTo(
+                case.expected
+            )
+        }
+    }
 }

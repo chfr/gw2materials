@@ -102,44 +102,38 @@ class CachedRepository(
     }
 
     override fun listings(itemIds: List<Int>): List<Listing> {
-        val dbListings = itemIds.mapNotNull { db.listing(Item(id = it, name = "whatever", recipe = null)) }
         val result = mutableListOf<Listing>()
+        val dbListings = itemIds.mapNotNull { db.listing(Item(id = it, name = "whatever", recipe = null)) }
 
         val missingListings = itemIds.subtract(dbListings.map { it.itemId })
 
-        dbListings.forEach { dbListing ->
-            if (listingTooOld(dbListing)) {
-                val item = Item(dbListing.itemId, "dummy", null)
-                api.listing(item).also { apiListing ->
-                    apiListing.whenNotNull {
-                        db.storeListing(it)
-                        result.add(it)
-                    }
-                }
-            } else {
-                result.add(dbListing)
-            }
+        val (tooOldListings, freshListings) = dbListings.partition { listingTooOld(it) }
+        result.addAll(freshListings)
+
+        val refreshedListings = api.listings(tooOldListings.map { it.itemId })
+        result.addAll(refreshedListings)
+        refreshedListings.forEach { listing ->
+            db.storeListing(listing)
         }
 
-        missingListings.forEach { itemId ->
-            val item = Item(itemId, "dummy", null)
-            val apiListing = api.listing(item)
-            apiListing.whenNotNull {
-                db.storeListing(it)
-                result.add(it)
-            }
+        val newListings = api.listings(missingListings.toList())
+        result.addAll(newListings)
+        newListings.forEach { listing ->
+            db.storeListing(listing)
         }
 
         return result.toList()
     }
 
     private fun listingTooOld(listing: Listing): Boolean {
+        if (listing.static)
+            return false
+
         val now = LocalDateTime.now()!!
         val age = ChronoUnit.SECONDS.between(listing.timestamp, now)
 
         return age > MAX_AGE
     }
-
 }
 
 class DatabaseRepository(
@@ -202,6 +196,7 @@ class DatabaseRepository(
                 item_id INTEGER NOT NULL,
                 highest_buy_order INTEGER NOT NULL,
                 lowest_sell_order INTEGER NOT NULL,
+                static INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(item_id)
             );
             """.trimIndent()
@@ -384,7 +379,8 @@ class DatabaseRepository(
                 listing.ts,
                 listing.item_id,
                 listing.highest_buy_order,
-                listing.lowest_sell_order
+                listing.lowest_sell_order,
+                listing.static
             FROM
                 Listing listing
             WHERE
@@ -398,12 +394,14 @@ class DatabaseRepository(
         return if (!rs.next()) {
             null
         } else {
-            val ts = rs.getString("ts")
+            val ts = LocalDateTime.parse(rs.getString("ts"), formatter)
+            val static = rs.getBoolean("static")
             Listing(
-                timestamp = LocalDateTime.parse(ts, formatter),
+                timestamp = if (static) LocalDateTime.now().plusHours(1) else ts,
                 itemId = rs.getInt("item_id"),
                 highestBuyOrder = rs.getInt("highest_buy_order"),
-                lowestSellOrder = rs.getInt("lowest_sell_order")
+                lowestSellOrder = rs.getInt("lowest_sell_order"),
+                static = rs.getBoolean("static")
             )
         }
     }
@@ -416,9 +414,9 @@ class DatabaseRepository(
         val statement = connection.prepareStatement(
             """
             INSERT INTO
-                Listing (ts, item_id, highest_buy_order, lowest_sell_order)
+                Listing (ts, item_id, highest_buy_order, lowest_sell_order, static)
             VALUES
-                (?, ?, ?, ?)
+                (?, ?, ?, ?, ?)
             ON CONFLICT(item_id) DO UPDATE SET ts = excluded.ts
         """.trimIndent()
         )
@@ -427,6 +425,7 @@ class DatabaseRepository(
         statement.setInt(2, listing.itemId)
         statement.setInt(3, listing.highestBuyOrder)
         statement.setInt(4, listing.lowestSellOrder)
+        statement.setBoolean(5, listing.static)
         statement.executeUpdate()
 
         return with(connection.prepareStatement("SELECT pk FROM Listing WHERE item_id = ?")) {

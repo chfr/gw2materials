@@ -167,7 +167,8 @@ internal class ApiRepositoryTest : ApiTest() {
             timestamp = result!!.timestamp,
             itemId = 19684,
             highestBuyOrder = 166,
-            lowestSellOrder = 168
+            lowestSellOrder = 168,
+            static = false
         )
 
         assertThat(result).isEqualToComparingFieldByField(expected)
@@ -242,13 +243,15 @@ internal class ApiRepositoryTest : ApiTest() {
                 timestamp = LocalDateTime.now(), // ignored when comparing
                 itemId = 19684,
                 highestBuyOrder = 171,
-                lowestSellOrder = 204
+                lowestSellOrder = 204,
+                static = false
             ),
             Listing(
                 timestamp = LocalDateTime.now(), // ignored when comparing
                 itemId = 19685,
                 highestBuyOrder = 158,
-                lowestSellOrder = 205
+                lowestSellOrder = 205,
+                static = false
             )
         )
 

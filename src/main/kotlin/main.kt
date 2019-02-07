@@ -3,6 +3,9 @@ val api = RateLimitedApiRepository(NetworkJsonRetriever())
 val repo = CachedRepository(db, api)
 
 fun main(args: Array<String>) {
+    println("Creating static items...")
+    createStatics()
+
     val ids = listOf(
 //        19680 // Copper ingot
         19680, // Copper ingot
@@ -44,6 +47,15 @@ fun main(args: Array<String>) {
     repo.updateStubItems()
 }
 
+fun createStatics() {
+    Listing.statics.forEach { stubListing ->
+        val item = repo.item(stubListing.itemId)
+        item.whenNotNull {
+            db.storeListing(stubListing)
+        }
+    }
+}
+
 fun checkProfitability(item: Item) {
     val craftedItems = repo.craftedItemsUsing(item)
     val itemListing = repo.listing(item)!!
@@ -52,8 +64,19 @@ fun checkProfitability(item: Item) {
     val craftedItemListings = craftedItems.filter { craftedItem ->
         craftedItem.recipe!!.ingredients.size <= 2
     }
-    val listings = repo.listings(craftedItemListings.map { it.id }).associateBy { it.itemId }
-    val listingByItem = craftedItemListings.associate { it to listings[it.id] }
+    val listingByCraftedItemId = repo.listings(craftedItemListings.map { it.id }).associateBy { it.itemId }
+    val listingByItem = craftedItemListings.associate { it to listingByCraftedItemId[it.id] }
+
+    listingByItem.keys.filter {
+        it.recipe != null
+    }.flatMap {
+        it.recipe!!.ingredients
+    }.map {
+        it.itemId
+    }.run {
+        // "pre-load" ingredient listings
+        repo.listings(this)
+    }
 
     listingByItem.filter { (_, listing) ->
         listing != null

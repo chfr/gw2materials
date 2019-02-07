@@ -32,9 +32,9 @@ class RateLimitedApiRepository(
             requestHistory.add(LocalDateTime.now())
             retriever.getJson(endpoint)
         } else {
-            print("Hit API rate limit (-10 % safety margin), waiting to request...")
+            println("Hit API rate limit (-10 % safety margin), waiting to request... ")
             Thread.sleep(61 * 1000)
-            print("Resuming requests after waiting")
+            println("Resuming requests after waiting")
             getJson(endpoint)
         }
     }
@@ -53,8 +53,12 @@ class RateLimitedApiRepository(
     }
 
     override fun items(itemIds: List<Int>): List<Item> {
-        val url = ITEM_BASE_URL.replace("ITEM_ID", itemIds.joinToString(","))
-        return Klaxon().parseArray<JsonItem>(getJson(url))?.map { it.toModel() } ?: emptyList()
+        if (itemIds.isEmpty())
+            return emptyList()
+        return itemIds.chunked(200).flatMap { ids ->
+            val url = ITEM_BASE_URL.replace("ITEM_ID", ids.joinToString(","))
+            Klaxon().parseArray<JsonItem>(getJson(url))?.map { it.toModel() } ?: emptyList()
+        }
     }
 
     override fun craftedItemsUsing(item: Item): List<Item> {
@@ -78,11 +82,13 @@ class RateLimitedApiRepository(
         return try {
             Klaxon().converter(ListingConverter()).parse<Listing>(getJson(url))!!
         } catch (e: FileNotFoundException) {
-            Listing(timestamp = LocalDateTime.now(), itemId = item.id, lowestSellOrder = 0, highestBuyOrder = 0)
+            Listing(timestamp = LocalDateTime.now(), itemId = item.id, lowestSellOrder = 0, highestBuyOrder = 0, static = false)
         }
     }
 
     override fun listings(itemIds: List<Int>): List<Listing> {
+        if (itemIds.isEmpty())
+            return emptyList()
         val url = LISTINGS_BASE_URL.replace("ITEM_IDS", itemIds.joinToString(","))
         return try {
             Klaxon().converter(ListingConverter()).parseArray(getJson(url))!!
@@ -107,7 +113,8 @@ class ListingConverter : Converter {
             timestamp = LocalDateTime.now(),
             itemId = obj.int("id")!!,
             highestBuyOrder = buy,
-            lowestSellOrder = sell
+            lowestSellOrder = sell,
+            static = false
         )
     }
 

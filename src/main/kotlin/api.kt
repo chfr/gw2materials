@@ -25,7 +25,7 @@ class RateLimitedApiRepository(
     private val retriever: JsonRetriever
 ) : GuildWars2Repository {
     private val maxRequestsPerMinute = 600
-    private val requestHistory = mutableListOf<LocalDateTime>()
+    val requestHistory = mutableListOf<LocalDateTime>()
 
     private fun getJson(endpoint: String): String {
         return if (canRequestFromApi()) {

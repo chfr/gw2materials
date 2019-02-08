@@ -1,3 +1,5 @@
+import java.time.temporal.ChronoUnit
+
 val db = DatabaseRepository("jdbc:sqlite:gw2materials.sqlite")
 val api = RateLimitedApiRepository(NetworkJsonRetriever())
 val repo = CachedRepository(db, api)
@@ -45,6 +47,9 @@ fun main(args: Array<String>) {
 
     println("Updating stub items...")
     repo.updateStubItems()
+    val timeSpent = ChronoUnit.SECONDS.between(repo.apiRequests().first(), repo.apiRequests().last())
+    val rate = repo.apiRequests().size / timeSpent.toFloat()
+    println("Issued ${repo.apiRequests().size} requests in $timeSpent seconds ($rate req/s)")
 }
 
 fun createStatics() {

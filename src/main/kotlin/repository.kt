@@ -134,6 +134,8 @@ class CachedRepository(
 
         return age > MAX_AGE
     }
+
+    fun apiRequests() = api.requestHistory.toList()
 }
 
 class DatabaseRepository(
@@ -437,5 +439,4 @@ class DatabaseRepository(
     fun close() {
         connection.close()
     }
-
 }

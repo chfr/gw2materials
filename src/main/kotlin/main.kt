@@ -4,6 +4,11 @@ val db = DatabaseRepository("jdbc:sqlite:gw2materials.sqlite")
 val api = RateLimitedApiRepository(NetworkJsonRetriever())
 val repo = CachedRepository(db, api)
 
+val disallowedNamePrefixes = listOf(
+    "Box of",
+    "Satchel of"
+)
+
 fun main(args: Array<String>) {
     println("Creating static items...")
     createStatics()
@@ -37,6 +42,7 @@ fun main(args: Array<String>) {
         19711, // Hard Wood Plank
         19709, // Elder Wood Plank
         19712 // Ancient Wood Plank
+//        24356 // Large Fang
     )
     ids.forEach { id ->
         val item = repo.item(id)
@@ -62,12 +68,16 @@ fun createStatics() {
 }
 
 fun checkProfitability(item: Item) {
-    val craftedItems = repo.craftedItemsUsing(item)
+    val craftedItems = repo.craftedItemsUsing(item).filterNot { craftedItem ->
+        disallowedNamePrefixes.any { prefix ->
+            craftedItem.name.startsWith(prefix)
+        }
+    }
     val itemListing = repo.listing(item)!!
     println("Base price per ${item.name}: ${itemListing.highestBuyOrder} / ${itemListing.lowestSellOrder}")
 
     val craftedItemListings = craftedItems.filter { craftedItem ->
-        craftedItem.recipe!!.ingredients.size <= 2
+        craftedItem.recipe!!.ingredients.size <= 4
     }
     val listingByCraftedItemId = repo.listings(craftedItemListings.map { it.id }).associateBy { it.itemId }
     val listingByItem = craftedItemListings.associate { it to listingByCraftedItemId[it.id] }
